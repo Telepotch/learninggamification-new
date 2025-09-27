@@ -92,7 +92,8 @@ export default function ParticipantResultPage() {
             score: participantScore,
             answers: participantAnswers ? JSON.parse(participantAnswers) : [],
             completedAt: Date.now(),
-            joinedAt: Date.now()
+            joinedAt: Date.now(),
+            currentQuestion: session?.quizData?.questions?.length || 0
           };
           
           setCurrentParticipant(selfParticipant);

@@ -161,8 +161,8 @@ export default function QuizPage() {
       
       if (isCompleted) {
         // ローカルストレージに結果を保存（最初の参加者対策）
-        localStorage.setItem('participantScore', totalScore.toString());
-        localStorage.setItem('participantAnswers', JSON.stringify(newAnswers));
+        localStorage.setItem('participantScore', newScore.toString());
+        localStorage.setItem('participantAnswers', JSON.stringify(updatedAnswers));
         
         // 完了画面へ
         router.push(`/join/result/${sessionId}`);
