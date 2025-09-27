@@ -47,8 +47,14 @@ export default function ParticipantResultPage() {
       if (snapshot.exists()) {
         const participantsData = Object.values(snapshot.val()) as Participant[];
         
+        // answersが存在しない参加者には空配列を設定
+        const validatedParticipants = participantsData.map(p => ({
+          ...p,
+          answers: p.answers || []
+        }));
+        
         // スコアでソート（同点の場合は完了時刻で判定）
-        participantsData.sort((a, b) => {
+        validatedParticipants.sort((a, b) => {
           if (b.score !== a.score) {
             return b.score - a.score;
           }
@@ -56,20 +62,42 @@ export default function ParticipantResultPage() {
           return (a.completedAt || Infinity) - (b.completedAt || Infinity);
         });
         
-        setAllParticipants(participantsData);
+        setAllParticipants(validatedParticipants);
         
         // 現在の参加者を特定
-        const current = participantsData.find(p => p.id === participantId);
+        const current = validatedParticipants.find(p => p.id === participantId);
         if (current) {
           setCurrentParticipant(current);
           // ランキングを計算
-          const currentRank = participantsData.findIndex(p => p.id === participantId) + 1;
+          const currentRank = validatedParticipants.findIndex(p => p.id === participantId) + 1;
           
           // 前回の順位を保存してから新しい順位を設定
           if (rank !== 0 && rank !== currentRank) {
             setPreviousRank(rank);
           }
           setRank(currentRank);
+        }
+      } else {
+        // データが存在しない場合（最初の参加者の場合）
+        // ローカルストレージから自分のデータを構築
+        const participantName = localStorage.getItem('participantName');
+        const participantScore = parseInt(localStorage.getItem('participantScore') || '0', 10);
+        const participantAnswers = localStorage.getItem('participantAnswers');
+        
+        if (participantId && participantName) {
+          const selfParticipant: Participant = {
+            id: participantId,
+            name: participantName,
+            sessionId: sessionId,
+            score: participantScore,
+            answers: participantAnswers ? JSON.parse(participantAnswers) : [],
+            completedAt: Date.now(),
+            joinedAt: Date.now()
+          };
+          
+          setCurrentParticipant(selfParticipant);
+          setAllParticipants([selfParticipant]);
+          setRank(1); // 最初の参加者なので1位
         }
       }
     });
@@ -78,7 +106,7 @@ export default function ParticipantResultPage() {
     return () => {
       unsubscribe();
     };
-  }, [sessionId]);
+  }, [sessionId, rank]);
 
   const getRankIcon = (position: number) => {
     switch (position) {
@@ -94,7 +122,7 @@ export default function ParticipantResultPage() {
   };
 
   const downloadPDF = async () => {
-    if (!resultRef.current || !session || !currentParticipant) return;
+    if (!resultRef.current || !session || !currentParticipant || !session.quizData?.questions) return;
     
     setIsGeneratingPDF(true);
     
@@ -123,16 +151,16 @@ export default function ParticipantResultPage() {
             <h2 style="font-size: 18px; margin-bottom: 15px;">成績</h2>
             <p style="margin: 5px 0;"><strong>スコア:</strong> ${currentParticipant.score}ポイント</p>
             <p style="margin: 5px 0;"><strong>正答率:</strong> ${Math.round(
-              (currentParticipant.answers.filter(a => a.isCorrect).length / 
-              session.quizData.questions.length) * 100
-            )}% (${currentParticipant.answers.filter(a => a.isCorrect).length}/${session.quizData.questions.length}問正解)</p>
-            <p style="margin: 5px 0;"><strong>順位:</strong> ${rank}位 / ${allParticipants.length}人中</p>
+              ((currentParticipant.answers?.filter(a => a.isCorrect).length || 0) / 
+              (session.quizData?.questions?.length || 0)) * 100
+            )}% (${currentParticipant.answers?.filter(a => a.isCorrect).length || 0}/${(session.quizData?.questions?.length || 0)}問正解)</p>
+            <p style="margin: 5px 0;"><strong>順位:</strong> ${rank}位 / ${Math.max(allParticipants.length, 1)}人中</p>
           </div>
           
           <div style="margin-bottom: 30px;">
             <h2 style="font-size: 18px; margin-bottom: 15px;">回答詳細</h2>
             ${session.quizData.questions.map((question, index) => {
-              const answer = currentParticipant.answers[index];
+              const answer = currentParticipant.answers?.[index];
               const isCorrect = answer?.isCorrect || false;
               const userAnswer = answer?.answer as number;
               
@@ -223,7 +251,7 @@ export default function ParticipantResultPage() {
     }
   };
 
-  if (!session || !currentParticipant) {
+  if (!session || !currentParticipant || !session.quizData || !session.quizData.questions) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 flex items-center justify-center">
         <div className="text-center">
@@ -234,10 +262,10 @@ export default function ParticipantResultPage() {
     );
   }
 
-  const correctRate = Math.round(
-    (currentParticipant.answers.filter(a => a.isCorrect).length / 
-    session.quizData.questions.length) * 100
-  );
+  const correctRate = session.quizData?.questions?.length ? Math.round(
+    ((currentParticipant.answers?.filter(a => a.isCorrect).length || 0) / 
+    (session.quizData?.questions?.length || 0)) * 100
+  ) : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-100 py-8">
@@ -268,7 +296,7 @@ export default function ParticipantResultPage() {
                   {correctRate}%
                 </p>
                 <p className="text-sm text-gray-500">
-                  {currentParticipant.answers.filter(a => a.isCorrect).length}/{session.quizData.questions.length}問正解
+                  {currentParticipant.answers?.filter(a => a.isCorrect).length || 0}/{(session.quizData?.questions?.length || 0)}問正解
                 </p>
               </div>
               <div className="text-center">
@@ -290,7 +318,7 @@ export default function ParticipantResultPage() {
                   )}
                 </div>
                 <p className="text-sm text-gray-500">
-                  {allParticipants.length}人中
+                  {Math.max(allParticipants.length, 1)}人中
                 </p>
               </div>
             </div>
@@ -302,8 +330,8 @@ export default function ParticipantResultPage() {
               あなたの回答結果
             </h2>
             <div className="space-y-6">
-              {session.quizData.questions.map((question, index) => {
-                const answer = currentParticipant.answers[index];
+              {session.quizData?.questions?.map((question, index) => {
+                const answer = currentParticipant.answers?.[index];
                 const isCorrect = answer?.isCorrect || false;
                 const userAnswer = answer?.answer as number;
                 
@@ -423,7 +451,7 @@ export default function ParticipantResultPage() {
               </div>
             </div>
             <div className="space-y-3">
-              {allParticipants.slice(0, 10).map((participant, index) => (
+              {allParticipants.length > 0 ? allParticipants.slice(0, 10).map((participant, index) => (
                 <div
                   key={participant.id}
                   className={`flex items-center justify-between p-3 rounded-lg ${
@@ -447,14 +475,19 @@ export default function ParticipantResultPage() {
                   </div>
                   <div className="flex items-center">
                     <span className="text-gray-600 mr-4">
-                      {participant.answers.filter(a => a.isCorrect).length}/{session.quizData.questions.length}問正解
+                      {participant.answers?.filter(a => a.isCorrect).length || 0}/{(session.quizData?.questions?.length || 0)}問正解
                     </span>
                     <span className="font-bold text-lg text-gray-900">
                       {participant.score}pt
                     </span>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div className="text-center py-6 text-gray-500">
+                  <p>まだ他の参加者がいません</p>
+                  <p className="text-sm mt-1">あなたが最初の回答者です！</p>
+                </div>
+              )}
             </div>
           </div>
 
